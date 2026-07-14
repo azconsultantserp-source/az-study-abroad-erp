@@ -1,0 +1,299 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  ADMIN
+  COUNSELOR
+  STUDENT
+}
+
+enum StudentStage {
+  QUERY
+  ADMISSION
+  VISA
+  SATISFIED
+}
+
+enum StageRecordStatus {
+  ACTIVE
+  MOVED
+}
+
+enum ConsultancyFeeStatus {
+  NOT_PAID
+  HALF_PAID
+  PAID
+}
+
+enum DocumentStatus {
+  PENDING_APPROVAL
+  APPROVED
+  REJECTED
+}
+
+enum Degree {
+  BACHELORS
+  MASTERS
+  PHD
+}
+
+enum Country {
+  GERMANY
+  LITHUANIA
+  UNITED_KINGDOM
+  SCOTLAND
+  IRELAND
+  ITALY
+  CHINA
+  HUNGARY
+  CYPRUS
+  ROMANIA
+  SWEDEN
+}
+
+model User {
+  id           String   @id @default(cuid())
+  name         String
+  email        String   @unique
+  passwordHash String
+  // Plaintext copy of the current password (AES-256-GCM encrypted at rest via
+  // sealCredential/revealCredential) so an Admin can view/share credentials.
+  // Login always verifies against passwordHash, never this field.
+  plainPassword String?
+  role         Role     @default(STUDENT)
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  studentCase      StudentCase?
+  counseledCases   StudentCase[]        @relation("Counselor")
+  uploadedDocs     Document[]           @relation("UploadedBy")
+  approvedDocs     Document[]           @relation("ApprovedBy")
+  movedStages      StudentStageRecord[] @relation("MovedBy")
+  auditLogs        AuditLog[]
+  notifications    Notification[]
+  accounts         Account[]
+  sessions         Session[]
+
+  @@index([role])
+  @@index([isActive])
+  @@index([role, createdAt])
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@index([userId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+model StudentCase {
+  id             String   @id @default(cuid())
+  userId         String?  @unique
+  counselorId    String
+  fullName       String
+  email          String?
+  phone          String?
+  nationality    String?
+  address        String?
+  passportNumber String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  user         User?                @relation(fields: [userId], references: [id])
+  counselor    User                 @relation("Counselor", fields: [counselorId], references: [id])
+  stageRecords StudentStageRecord[]
+
+  @@index([counselorId])
+  // Lists order cases by newest first; index the sort column.
+  @@index([createdAt])
+}
+
+model StudentStageRecord {
+  id                   String               @id @default(cuid())
+  caseId               String
+  stage                StudentStage
+  status               StageRecordStatus    @default(ACTIVE)
+  country              Country?
+  degree               Degree?
+  program              String?
+  intake               String?
+  university           String?
+  notes                String?              @db.Text
+  consultancyFeeStatus ConsultancyFeeStatus @default(NOT_PAID)
+  consultancyFeeNote   String?
+  copiedFromId         String?
+  movedById            String?
+  movedAt              DateTime?
+  createdAt            DateTime             @default(now())
+  updatedAt            DateTime             @updatedAt
+
+  studentCase StudentCase          @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  copiedFrom  StudentStageRecord?  @relation("StageCopy", fields: [copiedFromId], references: [id])
+  copies      StudentStageRecord[] @relation("StageCopy")
+  movedBy     User?                @relation("MovedBy", fields: [movedById], references: [id])
+  documents   Document[]
+  moveHistory StageMoveHistory[]   @relation("FromRecord")
+  movedTo     StageMoveHistory[]   @relation("ToRecord")
+
+  @@index([caseId, stage, status])
+  @@index([stage, status])
+  @@index([movedById])
+  // Dashboard "recent" + approvals order ACTIVE records by updatedAt; these
+  // composites let Postgres satisfy the filter and the sort from one index.
+  @@index([status, updatedAt])
+  @@index([stage, status, updatedAt])
+  // Active-record lookup per case (listStudentCases, my-portal).
+  @@index([caseId, status])
+}
+
+model DocumentRequirement {
+  id           String   @id @default(cuid())
+  country      Country
+  degree       Degree
+  documentName String
+  sortOrder    Int      @default(0)
+  isMandatory  Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  documents Document[]
+
+  @@unique([country, degree, documentName])
+  // Checklist queries filter by (country, degree) and sort by sortOrder;
+  // extending the index covers the ORDER BY without a separate sort step.
+  @@index([country, degree, sortOrder])
+}
+
+model Document {
+  id               String         @id @default(cuid())
+  stageRecordId    String
+  requirementId    String?
+  documentType     String         @default("legacy")
+  fileName         String
+  filePath         String
+  fileSize         Int
+  mimeType         String
+  status           DocumentStatus @default(PENDING_APPROVAL)
+  version          Int            @default(1)
+  isCurrent        Boolean        @default(true)
+  parentDocumentId String?
+  country          Country?
+  degree           Degree?
+  intake           String?
+  university       String?
+  uploadedById     String
+  approvedById     String?
+  approvedAt       DateTime?
+  reviewNote       String?
+  uploadedAt       DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+
+  stageRecord    StudentStageRecord  @relation(fields: [stageRecordId], references: [id], onDelete: Cascade)
+  requirement    DocumentRequirement? @relation(fields: [requirementId], references: [id], onDelete: SetNull)
+  uploadedBy     User                @relation("UploadedBy", fields: [uploadedById], references: [id])
+  approvedBy     User?               @relation("ApprovedBy", fields: [approvedById], references: [id])
+  parentDocument Document?           @relation("DocumentVersions", fields: [parentDocumentId], references: [id], onDelete: SetNull)
+  childVersions  Document[]          @relation("DocumentVersions")
+  notifications  Notification[]
+
+  @@index([stageRecordId, documentType, isCurrent])
+  @@index([stageRecordId])
+  @@index([status])
+  @@index([requirementId])
+  @@index([uploadedById])
+  @@index([approvedById])
+  // Document lists/checklists sort by uploadedAt within a stage record.
+  @@index([stageRecordId, uploadedAt])
+  // Dashboard pending count + metrics: filter by status + isCurrent together.
+  @@index([status, isCurrent])
+}
+
+model Notification {
+  id         String   @id @default(cuid())
+  userId     String
+  title      String
+  message    String   @db.Text
+  type       String
+  documentId String?
+  read       Boolean  @default(false)
+  createdAt  DateTime @default(now())
+
+  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  document Document? @relation(fields: [documentId], references: [id], onDelete: SetNull)
+
+  @@index([userId, read])
+  @@index([createdAt])
+  // Bell dropdown lists a user's notifications newest-first.
+  @@index([userId, createdAt])
+}
+
+model StageMoveHistory {
+  id           String       @id @default(cuid())
+  fromRecordId String
+  toRecordId   String
+  movedById    String
+  fromStage    StudentStage
+  toStage      StudentStage
+  note         String?
+  createdAt    DateTime     @default(now())
+
+  fromRecord StudentStageRecord @relation("FromRecord", fields: [fromRecordId], references: [id])
+  toRecord   StudentStageRecord @relation("ToRecord", fields: [toRecordId], references: [id])
+
+  @@index([fromRecordId])
+  @@index([toRecordId])
+  @@index([movedById])
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  userId    String?
+  action    String
+  entity    String
+  entityId  String?
+  details   String?
+  createdAt DateTime @default(now())
+
+  user User? @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([createdAt])
+}

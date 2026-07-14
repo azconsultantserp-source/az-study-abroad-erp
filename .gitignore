@@ -1,0 +1,52 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Build
+.next/
+out/
+build/
+dist/
+
+# Environment & secrets — NEVER commit
+.env
+.env.local
+.env.*.local
+
+# Uploads (student documents — local disk)
+uploads/
+
+# Database + file backups (contain PII)
+backups/*
+!backups/.gitkeep
+
+# IDE / OS
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db
+
+# Debug / logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# Prisma
+prisma/*.db
+prisma/*.db-journal
+
+# TypeScript
+*.tsbuildinfo
+next-env.d.ts
+
+# Vercel
+.vercel
+
+# Test coverage & generated E2E artifacts
+coverage/
+test-results/
+playwright-report/
+.playwright/

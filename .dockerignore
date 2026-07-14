@@ -1,0 +1,30 @@
+node_modules
+.next
+.git
+.github
+.env
+.env.*
+!.env.example
+uploads
+backups
+*.log
+coverage
+
+# Tests & test tooling — kept in the repo, never shipped in the production image.
+tests
+e2e
+vitest.config.ts
+vitest.setup.ts
+playwright.config.ts
+playwright-report
+test-results
+
+# Editor / docs / build files not needed inside the image.
+.vscode
+.idea
+.cursor
+README.md
+DEPLOYMENT.md
+Dockerfile
+docker-compose*.yml
+.dockerignore

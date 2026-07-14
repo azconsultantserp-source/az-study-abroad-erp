@@ -1,0 +1,2 @@
+# Cron schedule for the backup container (nightly at 02:00 UTC).
+0 2 * * * /usr/local/bin/backup.sh >> /backups/backup.log 2>&1
